@@ -675,17 +675,53 @@
         </div>
       </div>
       <div class="comp-body">
-        <p>Home Mixer 是整个系统的大脑，负责编排和调度所有流水线阶段。它对外暴露一个 gRPC 接口（<code style="color:var(--accent);font-size:.82rem;">ScoredPostsService</code>），接收用户 ID 后返回个性化排序帖子列表。</p>
+        <p>Home Mixer 是整个系统的<strong>调度大脑</strong>。用户每次刷新信息流，都会触发一次对 <code style="color:var(--accent);font-size:.82rem;">ScoredPostsService</code> gRPC 接口的调用，Home Mixer 随即启动完整的流水线并最终返回排序好的帖子列表。</p>
+
+        <!-- 内部逻辑流程 -->
+        <div style="margin:16px 0;background:var(--surface2);border-radius:10px;padding:20px;border:1px solid var(--border);">
+          <p style="font-size:.78rem;color:var(--text3);font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:14px;">内部执行逻辑</p>
+          <div style="display:flex;flex-direction:column;gap:8px;font-size:.84rem;">
+            <div style="display:flex;align-items:flex-start;gap:10px;">
+              <span style="background:var(--accent);color:#fff;border-radius:4px;padding:1px 7px;font-size:.72rem;font-weight:700;flex-shrink:0;margin-top:2px;">①</span>
+              <div><strong>接收请求</strong>：解析用户 ID，初始化流水线上下文（PipelineContext）</div>
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:10px;">
+              <span style="background:var(--accent);color:#fff;border-radius:4px;padding:1px 7px;font-size:.72rem;font-weight:700;flex-shrink:0;margin-top:2px;">②</span>
+              <div><strong>Query Hydration</strong>：并行拉取用户的互动历史序列（Action Sequence）和元特征（关注列表、设备、语言等），注入上下文</div>
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:10px;">
+              <span style="background:var(--accent);color:#fff;border-radius:4px;padding:1px 7px;font-size:.72rem;font-weight:700;flex-shrink:0;margin-top:2px;">③</span>
+              <div><strong>并行召回</strong>：同时向 Thunder（站内）和 Phoenix 检索（站外）发起请求，合并结果到候选池</div>
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:10px;">
+              <span style="background:var(--accent);color:#fff;border-radius:4px;padding:1px 7px;font-size:.72rem;font-weight:700;flex-shrink:0;margin-top:2px;">④</span>
+              <div><strong>候选 Hydration</strong>：并行补全候选帖子的核心数据、作者信息、媒体实体，候选携带完整特征才能参与排序</div>
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:10px;">
+              <span style="background:var(--accent);color:#fff;border-radius:4px;padding:1px 7px;font-size:.72rem;font-weight:700;flex-shrink:0;margin-top:2px;">⑤</span>
+              <div><strong>前置过滤</strong>：顺序执行 10 个过滤器，剔除明显不合格候选（去重/屏蔽/过期等），减少后续 ML 推断量</div>
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:10px;">
+              <span style="background:var(--accent);color:#fff;border-radius:4px;padding:1px 7px;font-size:.72rem;font-weight:700;flex-shrink:0;margin-top:2px;">⑥</span>
+              <div><strong>ML 评分链</strong>：依次调用 Phoenix Scorer → Weighted Scorer → Author Diversity Scorer → OON Scorer，得到最终分数</div>
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:10px;">
+              <span style="background:var(--accent);color:#fff;border-radius:4px;padding:1px 7px;font-size:.72rem;font-weight:700;flex-shrink:0;margin-top:2px;">⑦</span>
+              <div><strong>择优 + 后置过滤</strong>：取 Top-K，再做可见性兜底（删帖/违规），异步触发 Side Effects 写缓存</div>
+            </div>
+          </div>
+        </div>
+
         <table>
-          <tr><th>阶段</th><th>作用</th></tr>
-          <tr><td>Query Hydrators</td><td>获取用户互动历史、关注列表等上下文信息</td></tr>
-          <tr><td>Sources</td><td>并行从 Thunder 和 Phoenix 拉取候选帖子</td></tr>
-          <tr><td>Hydrators</td><td>为候选帖子补全额外数据（媒体、作者信息等）</td></tr>
-          <tr><td>Filters</td><td>移除不应展示的候选（重复、屏蔽、过期等）</td></tr>
-          <tr><td>Scorers</td><td>预测用户互动概率，计算最终排序分数</td></tr>
-          <tr><td>Selector</td><td>按分数降序排列，选取 Top-K</td></tr>
-          <tr><td>Post-Selection Filters</td><td>最终可见性检查与会话去重</td></tr>
-          <tr><td>Side Effects</td><td>异步缓存请求信息，用于下次推荐</td></tr>
+          <tr><th>阶段</th><th>关键文件</th><th>说明</th></tr>
+          <tr><td>Query Hydrators</td><td>query_hydrators/</td><td>拉取用户行为序列与元特征，填入上下文</td></tr>
+          <tr><td>Sources</td><td>sources/thunder_source.rs<br/>sources/phoenix_source.rs</td><td>并行向 Thunder / Phoenix 发起候选拉取</td></tr>
+          <tr><td>Hydrators</td><td>candidate_hydrators/</td><td>并行补全帖子正文、媒体、作者、订阅状态</td></tr>
+          <tr><td>Filters</td><td>filters/（10 个）</td><td>前置过滤，消除不合格候选</td></tr>
+          <tr><td>Scorers</td><td>scorers/（4 个）</td><td>ML 预测 + 加权合并 + 多样性调整</td></tr>
+          <tr><td>Selector</td><td>selectors/</td><td>按分数降序，取 Top-K</td></tr>
+          <tr><td>Post-Selection Filters</td><td>filters/vf_filter.rs<br/>filters/dedup_conversation_filter.rs</td><td>安全兜底与对话去重</td></tr>
+          <tr><td>Side Effects</td><td>side_effects/</td><td>异步写入请求缓存，供下次推荐使用</td></tr>
         </table>
       </div>
     </div>
@@ -695,7 +731,7 @@
       <div class="comp-header">
         <div class="comp-icon" style="background:#1d9bf015; font-size:1.5rem;">⚡</div>
         <div>
-          <div class="comp-title">Thunder · 站内内容引擎</div>
+          <div class="comp-title">Thunder · 站内实时内容引擎</div>
           <div class="comp-sub">thunder/ · Rust</div>
         </div>
         <div style="margin-left:auto;">
@@ -704,22 +740,42 @@
         </div>
       </div>
       <div class="comp-body">
-        <p>Thunder 是一个高性能的内存帖子存储系统，实时消费 Kafka 中的帖子创建/删除事件。它为每个用户维护三种帖子列表：</p>
-        <div class="grid3" style="margin:12px 0;">
-          <div style="background:var(--surface2);border-radius:8px;padding:12px;border:1px solid var(--border);">
-            <div style="color:var(--accent);font-size:.8rem;font-weight:700;margin-bottom:4px;">原创帖子</div>
-            <div style="color:var(--text2);font-size:.8rem;">用户发布的原始 Posts</div>
+        <p>Thunder 解决的核心问题：<strong>如何在亚毫秒级内找到「你关注的人最近发了什么」？</strong>传统方案是实时查数据库，但对百万并发请求而言延迟太高。Thunder 的解法是把近期帖子全部常驻内存，用 Kafka 保持实时同步。</p>
+
+        <!-- 数据流动图 -->
+        <div style="margin:16px 0;background:var(--surface2);border-radius:10px;padding:20px;border:1px solid var(--border);">
+          <p style="font-size:.78rem;color:var(--text3);font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:14px;">数据摄取与查询流程</p>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:.83rem;">
+            <div style="background:#d9770615;border:1px solid #d9770630;border-radius:8px;padding:8px 14px;color:#fbbf24;font-weight:600;">Kafka Topic<br/><span style="font-size:.72rem;font-weight:400;color:var(--text3);">帖子创建/删除事件</span></div>
+            <div style="color:var(--text3);font-size:1.1rem;">→</div>
+            <div style="background:#1d9bf015;border:1px solid #1d9bf030;border-radius:8px;padding:8px 14px;color:var(--accent);font-weight:600;">TweetEventsListener<br/><span style="font-size:.72rem;font-weight:400;color:var(--text3);">反序列化事件</span></div>
+            <div style="color:var(--text3);font-size:1.1rem;">→</div>
+            <div style="background:#05966915;border:1px solid #05966930;border-radius:8px;padding:8px 14px;color:#34d399;font-weight:600;">PostStore（内存）<br/><span style="font-size:.72rem;font-weight:400;color:var(--text3);">按用户 ID 分桶存储</span></div>
+            <div style="color:var(--text3);font-size:1.1rem;">←</div>
+            <div style="background:#7c3aed15;border:1px solid #7c3aed30;border-radius:8px;padding:8px 14px;color:#a78bfa;font-weight:600;">HomeMixer 查询<br/><span style="font-size:.72rem;font-weight:400;color:var(--text3);">传入关注列表</span></div>
           </div>
-          <div style="background:var(--surface2);border-radius:8px;padding:12px;border:1px solid var(--border);">
-            <div style="color:var(--accent);font-size:.8rem;font-weight:700;margin-bottom:4px;">回复与转发</div>
-            <div style="color:var(--text2);font-size:.8rem;">Replies 和 Reposts</div>
+          <p style="font-size:.78rem;color:var(--text3);margin-top:10px;">查询时：HomeMixer 传入用户的关注列表 → Thunder 批量取各关注账号的帖子 → 合并返回候选池</p>
+        </div>
+
+        <p style="font-size:.875rem;color:var(--text2);margin-bottom:12px;">每个用户在 PostStore 中维护三条独立的帖子队列，按类型分开存储便于快速过滤：</p>
+        <div class="grid3" style="margin:0 0 14px;">
+          <div style="background:var(--surface2);border-radius:8px;padding:14px;border:1px solid var(--border);">
+            <div style="color:var(--accent);font-size:.85rem;font-weight:700;margin-bottom:6px;">📝 原创帖子</div>
+            <div style="color:var(--text2);font-size:.8rem;">original_posts：用户直接发布的原始 Post，权重最高，优先纳入候选</div>
           </div>
-          <div style="background:var(--surface2);border-radius:8px;padding:12px;border:1px solid var(--border);">
-            <div style="color:var(--accent);font-size:.8rem;font-weight:700;margin-bottom:4px;">视频帖子</div>
-            <div style="color:var(--text2);font-size:.8rem;">含视频内容的 Posts</div>
+          <div style="background:var(--surface2);border-radius:8px;padding:14px;border:1px solid var(--border);">
+            <div style="color:var(--accent);font-size:.85rem;font-weight:700;margin-bottom:6px;">💬 回复与转发</div>
+            <div style="color:var(--text2);font-size:.8rem;">replies：含 @ 回复和 Repost，社交互动信号，可单独控制召回比例</div>
+          </div>
+          <div style="background:var(--surface2);border-radius:8px;padding:14px;border:1px solid var(--border);">
+            <div style="color:var(--accent);font-size:.85rem;font-weight:700;margin-bottom:6px;">▶️ 视频帖子</div>
+            <div style="color:var(--text2);font-size:.8rem;">video_posts：单独维护便于视频流场景按需拉取，可精确控制视频内容占比</div>
           </div>
         </div>
-        <p>过期帖子会自动清理，保持存储精简。正因为全部数据驻留内存，Thunder 可以在<strong>亚毫秒级</strong>内完成站内候选的查询，无需访问外部数据库。</p>
+
+        <div style="background:#d9770608;border:1px solid #d9770620;border-radius:8px;padding:12px 16px;font-size:.83rem;">
+          <strong style="color:#fbbf24;">TTL 自动清理：</strong><span style="color:var(--text2);">每条队列都有保留时间窗口（Retention Period），超期帖子在写入新帖时顺带清除，无需独立 GC 线程，保持内存占用可控。</span>
+        </div>
       </div>
     </div>
 
@@ -737,27 +793,42 @@
         </div>
       </div>
       <div class="comp-body">
-        <p>Phoenix 是系统的 ML 核心，承担两大职责：</p>
+        <p>Phoenix 是系统的 ML 核心，分两个阶段处理推荐问题：先从海量帖子中<strong>快速筛出相关候选</strong>（召回），再对候选做<strong>精细评分排序</strong>（排序）。两个阶段共用同一套 Transformer 基础架构。</p>
 
-        <div style="background:var(--surface2);border-radius:8px;padding:16px 20px;margin:12px 0;border:1px solid var(--border);">
-          <h3 style="font-size:.9rem;margin-bottom:8px;color:var(--accent);">① 召回阶段 · Two-Tower 模型</h3>
-          <p style="font-size:.85rem;color:var(--text2);margin-bottom:0;">
-            <strong style="color:var(--text);">用户塔：</strong>将用户特征和互动历史编码为向量 Embedding<br/>
-            <strong style="color:var(--text);">候选塔：</strong>将全量帖子编码为 Embedding<br/>
-            <strong style="color:var(--text);">相似搜索：</strong>通过点积计算取 Top-K 最相似候选（ANN）
-          </p>
+        <!-- Stage 1: Two-Tower -->
+        <div style="background:var(--surface2);border-radius:10px;padding:18px 20px;margin:16px 0;border:1px solid #1d9bf030;">
+          <h3 style="font-size:.92rem;margin-bottom:12px;color:var(--accent);">阶段一：召回 · Two-Tower 双塔模型</h3>
+          <p style="font-size:.84rem;color:var(--text2);margin-bottom:12px;">核心思路：<strong style="color:var(--text);">把用户和帖子都映射到同一个向量空间</strong>，"越相似的内容，在向量空间距离越近"，用向量相似度代替逐条计算相关性，从而在百万帖子中快速找到最相关的候选。</p>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+            <div style="flex:1;min-width:160px;background:var(--surface);border-radius:8px;padding:12px;border:1px solid var(--border);">
+              <div style="font-size:.78rem;font-weight:700;color:var(--accent);margin-bottom:6px;">用户塔（User Tower）</div>
+              <div style="font-size:.8rem;color:var(--text2);">输入：用户特征 + 近期互动历史<br/>经过：Transformer 编码<br/>输出：用户 Embedding 向量 [D]</div>
+            </div>
+            <div style="flex:1;min-width:160px;background:var(--surface);border-radius:8px;padding:12px;border:1px solid var(--border);">
+              <div style="font-size:.78rem;font-weight:700;color:#a78bfa;margin-bottom:6px;">候选塔（Candidate Tower）</div>
+              <div style="font-size:.8rem;color:var(--text2);">输入：帖子特征（文本/作者/媒体）<br/>经过：轻量编码器<br/>输出：帖子 Embedding 矩阵 [N×D]</div>
+            </div>
+          </div>
+          <div style="background:var(--surface);border-radius:8px;padding:10px 14px;border:1px solid var(--border);font-size:.83rem;color:var(--text2);">
+            <strong style="color:var(--text);">相似度搜索：</strong>用户向量 · 帖子矩阵 = 相似度分数 → ANN 近似最近邻算法取 Top-K → 返回候选<br/>
+            <span style="color:var(--text3);font-size:.78rem;">离线预计算帖子 Embedding 并建索引，在线只需对用户向量做一次查找，效率极高</span>
+          </div>
         </div>
 
-        <div style="background:var(--surface2);border-radius:8px;padding:16px 20px;margin:12px 0;border:1px solid var(--border);">
-          <h3 style="font-size:.9rem;margin-bottom:8px;color:#a78bfa;">② 排序阶段 · Transformer with Candidate Isolation</h3>
-          <p style="font-size:.85rem;color:var(--text2);margin-bottom:8px;">基于 Grok-1 的 Transformer 架构，输入用户上下文 + 候选帖子，输出每个候选引发各类互动的概率。</p>
-          <p style="font-size:.85rem;color:var(--text2);margin-bottom:0;">
-            关键设计：<strong style="color:#a78bfa;">候选隔离注意力掩码</strong>——候选帖子之间无法相互注意，只能各自独立关注用户上下文，确保评分独立可缓存。
-          </p>
+        <!-- Stage 2: Transformer Ranking -->
+        <div style="background:var(--surface2);border-radius:10px;padding:18px 20px;margin:16px 0;border:1px solid #7c3aed30;">
+          <h3 style="font-size:.92rem;margin-bottom:12px;color:#a78bfa;">阶段二：排序 · Transformer + 候选隔离掩码</h3>
+          <p style="font-size:.84rem;color:var(--text2);margin-bottom:12px;">召回缩小到数百个候选后，用更强的 Transformer（移植自 Grok-1）做精细评分。<strong style="color:var(--text);">关键设计是"候选隔离"</strong>：每个候选帖子的评分只取决于用户上下文，不受同批次其他候选影响。</p>
+          <div style="background:var(--surface);border-radius:8px;padding:14px;border:1px solid var(--border);font-size:.83rem;margin-bottom:12px;">
+            <div style="margin-bottom:8px;"><strong style="color:var(--text);">输入序列 =</strong> <span style="color:var(--accent);">[用户 Embedding]</span> + <span style="color:#34d399;">[历史帖子序列 S 个]</span> + <span style="color:#a78bfa;">[候选帖子 C 个]</span></div>
+            <div style="margin-bottom:8px;"><strong style="color:var(--text);">Transformer 处理</strong>：带特殊注意力掩码的多头自注意力 + FFN，候选位置只能 attend 用户与历史，不能 attend 其他候选</div>
+            <div><strong style="color:var(--text);">输出</strong>：取候选位置的隐状态 → 线性投影 → <span style="color:#fbbf24;">[B, C, 15]</span>（每个候选 × 15 种行为概率）</div>
+          </div>
+          <div style="font-size:.8rem;color:var(--text3);">为何候选隔离重要？若候选能互相 attend，则同一帖子在不同批次中分数不同，无法缓存，也难以公平比较。隔离后每条帖子的分数只与用户相关，具有确定性。</div>
         </div>
 
         <!-- Attention Mask Visual -->
-        <div style="overflow-x:auto;margin-top:16px;">
+        <div style="overflow-x:auto;margin-top:4px;">
           <p style="font-size:.8rem;color:var(--text3);margin-bottom:8px;font-weight:600;">注意力掩码可视化（✓ 可关注 · ✗ 不可关注）</p>
           <div class="mask-grid">
             <div class="mask-row">
@@ -811,7 +882,7 @@
       <div class="comp-header">
         <div class="comp-icon" style="background:#05966915; font-size:1.5rem;">🏗</div>
         <div>
-          <div class="comp-title">Candidate Pipeline · 可复用框架</div>
+          <div class="comp-title">Candidate Pipeline · 可复用流水线框架</div>
           <div class="comp-sub">candidate-pipeline/ · Rust</div>
         </div>
         <div style="margin-left:auto;">
@@ -819,38 +890,65 @@
         </div>
       </div>
       <div class="comp-body">
-        <p>一个通用的推荐流水线框架，定义了构建推荐系统所需的标准 Trait（接口），让业务逻辑与执行框架完全解耦。</p>
-        <div class="grid3">
-          <div style="text-align:center;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">
-            <div style="font-size:1.3rem;margin-bottom:6px;">📡</div>
-            <div style="font-size:.8rem;font-weight:700;color:var(--accent);">Source</div>
-            <div style="font-size:.75rem;color:var(--text3);">从数据源获取候选</div>
+        <p>Candidate Pipeline 是整个系统的<strong>基础设施层</strong>，提供一套标准化的 Rust Trait（接口），让 HomeMixer 的业务逻辑可以专注在"做什么"，而不用操心"怎么调度、怎么并行、怎么容错"。类比理解：它就像 Web 框架之于业务接口——有了框架，你只需实现路由处理器，其余的由框架搞定。</p>
+
+        <div style="margin:16px 0;background:var(--surface2);border-radius:10px;padding:18px 20px;border:1px solid var(--border);">
+          <p style="font-size:.78rem;color:var(--text3);font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:14px;">六大核心 Trait 及其职责</p>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+
+            <div style="display:flex;gap:12px;align-items:flex-start;background:var(--surface);border-radius:8px;padding:12px 14px;border:1px solid var(--border);">
+              <div style="font-size:1.2rem;flex-shrink:0;">📡</div>
+              <div>
+                <div style="font-size:.85rem;font-weight:700;color:var(--accent);margin-bottom:3px;">Source · 候选来源</div>
+                <div style="font-size:.81rem;color:var(--text2);">定义"从哪里拿候选"。实现者：<code style="color:var(--accent);font-size:.78rem;">ThunderSource</code>（内存查询）和 <code style="color:var(--accent);font-size:.78rem;">PhoenixSource</code>（gRPC 调用 ML 服务）。框架会并行调用所有 Source，合并结果。</div>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:12px;align-items:flex-start;background:var(--surface);border-radius:8px;padding:12px 14px;border:1px solid var(--border);">
+              <div style="font-size:1.2rem;flex-shrink:0;">💉</div>
+              <div>
+                <div style="font-size:.85rem;font-weight:700;color:var(--accent);margin-bottom:3px;">Hydrator · 数据丰富</div>
+                <div style="font-size:.81rem;color:var(--text2);">定义"给候选补全什么数据"。多个 Hydrator 可并行执行，例如同时拉取帖子正文和作者信息，而不是串行等待。每个 Hydrator 只修改自己负责的字段，互不干扰（不可变模式）。</div>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:12px;align-items:flex-start;background:var(--surface);border-radius:8px;padding:12px 14px;border:1px solid var(--border);">
+              <div style="font-size:1.2rem;flex-shrink:0;">🚫</div>
+              <div>
+                <div style="font-size:.85rem;font-weight:700;color:var(--accent);margin-bottom:3px;">Filter · 过滤</div>
+                <div style="font-size:.81rem;color:var(--text2);">定义"哪些候选应该被丢弃"。每个 Filter 返回 true/false，框架收集所有 Filter 的结果后统一过滤，避免重复遍历候选列表。失败容错：单个 Filter 报错不会中断整条流水线。</div>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:12px;align-items:flex-start;background:var(--surface);border-radius:8px;padding:12px 14px;border:1px solid var(--border);">
+              <div style="font-size:1.2rem;flex-shrink:0;">📊</div>
+              <div>
+                <div style="font-size:.85rem;font-weight:700;color:var(--accent);margin-bottom:3px;">Scorer · 评分</div>
+                <div style="font-size:.81rem;color:var(--text2);">定义"如何给候选打分"。多个 Scorer 顺序执行（后一个可基于前一个的分数），框架负责将每个 Scorer 的输出累加或覆盖到候选的分数字段上。</div>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:12px;align-items:flex-start;background:var(--surface);border-radius:8px;padding:12px 14px;border:1px solid var(--border);">
+              <div style="font-size:1.2rem;flex-shrink:0;">🏆</div>
+              <div>
+                <div style="font-size:.85rem;font-weight:700;color:var(--accent);margin-bottom:3px;">Selector · 择优</div>
+                <div style="font-size:.81rem;color:var(--text2);">定义"如何从候选中选出最终结果"。默认实现是按分数降序排列后取 Top-K，也可扩展为带约束的选择（如强制保留一定比例的站外内容）。</div>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:12px;align-items:flex-start;background:var(--surface);border-radius:8px;padding:12px 14px;border:1px solid var(--border);">
+              <div style="font-size:1.2rem;flex-shrink:0;">📝</div>
+              <div>
+                <div style="font-size:.85rem;font-weight:700;color:var(--accent);margin-bottom:3px;">SideEffect · 副作用</div>
+                <div style="font-size:.81rem;color:var(--text2);">定义"流水线完成后还需要做什么"。异步执行，不阻塞响应返回。典型用途：将本次服务的帖子 ID 写入"已服务缓存"，供下次 PreviouslyServedPostsFilter 使用，形成闭环。</div>
+              </div>
+            </div>
+
           </div>
-          <div style="text-align:center;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">
-            <div style="font-size:1.3rem;margin-bottom:6px;">💉</div>
-            <div style="font-size:.8rem;font-weight:700;color:var(--accent);">Hydrator</div>
-            <div style="font-size:.75rem;color:var(--text3);">丰富候选特征数据</div>
-          </div>
-          <div style="text-align:center;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">
-            <div style="font-size:1.3rem;margin-bottom:6px;">🚫</div>
-            <div style="font-size:.8rem;font-weight:700;color:var(--accent);">Filter</div>
-            <div style="font-size:.75rem;color:var(--text3);">移除不合格候选</div>
-          </div>
-          <div style="text-align:center;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">
-            <div style="font-size:1.3rem;margin-bottom:6px;">📊</div>
-            <div style="font-size:.8rem;font-weight:700;color:var(--accent);">Scorer</div>
-            <div style="font-size:.75rem;color:var(--text3);">计算候选排序分</div>
-          </div>
-          <div style="text-align:center;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">
-            <div style="font-size:1.3rem;margin-bottom:6px;">🏆</div>
-            <div style="font-size:.8rem;font-weight:700;color:var(--accent);">Selector</div>
-            <div style="font-size:.75rem;color:var(--text3);">排序并选 Top-K</div>
-          </div>
-          <div style="text-align:center;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">
-            <div style="font-size:1.3rem;margin-bottom:6px;">📝</div>
-            <div style="font-size:.8rem;font-weight:700;color:var(--accent);">SideEffect</div>
-            <div style="font-size:.75rem;color:var(--text3);">异步缓存/日志</div>
-          </div>
+        </div>
+
+        <div style="background:#05966908;border:1px solid #05966920;border-radius:8px;padding:12px 16px;font-size:.83rem;">
+          <strong style="color:#34d399;">设计收益：</strong><span style="color:var(--text2);">新增一个数据源只需实现 Source Trait；新增一条过滤规则只需实现 Filter Trait。框架负责调度、并行、日志、监控，业务代码零感知，测试也可以完全隔离。</span>
         </div>
       </div>
     </div>
@@ -1101,80 +1199,105 @@
     <h2><span class="tag">Quick Start</span>快速上手</h2>
     <p class="section-desc">几分钟内运行 Phoenix ML 模型，亲手体验推荐算法。</p>
 
-    <div class="grid2" style="margin-bottom:24px;">
-      <div>
-        <h3 style="font-size:.95rem;margin-bottom:12px;">环境要求</h3>
-        <div class="grid2" style="gap:10px;">
-          <div class="card" style="padding:14px;">
-            <div style="font-size:1.2rem;margin-bottom:4px;">🐍</div>
-            <h3 style="font-size:.85rem;">Python 3.11+</h3>
-            <p>运行 Phoenix ML 模型所需</p>
-          </div>
-          <div class="card" style="padding:14px;">
-            <div style="font-size:1.2rem;margin-bottom:4px;">⚡</div>
-            <h3 style="font-size:.85rem;">Rust 1.70+</h3>
-            <p>运行 Thunder / Home Mixer</p>
-          </div>
-          <div class="card" style="padding:14px;">
-            <div style="font-size:1.2rem;margin-bottom:4px;">📦</div>
-            <h3 style="font-size:.85rem;">uv</h3>
-            <p>Python 包管理器（推荐）</p>
-          </div>
-          <div class="card" style="padding:14px;">
-            <div style="font-size:1.2rem;margin-bottom:4px;">📨</div>
-            <h3 style="font-size:.85rem;">Kafka（可选）</h3>
-            <p>Thunder 实时事件摄取</p>
-          </div>
-        </div>
+    <!-- 环境要求 -->
+    <h3 style="font-size:.95rem;margin-bottom:14px;">环境要求</h3>
+    <div class="grid4" style="margin-bottom:36px;">
+      <div class="card" style="padding:16px;">
+        <div style="font-size:1.4rem;margin-bottom:6px;">🐍</div>
+        <h3 style="font-size:.88rem;">Python 3.11+</h3>
+        <p>运行 Phoenix ML 模型所需</p>
       </div>
-      <div>
-        <h3 style="font-size:.95rem;margin-bottom:12px;">项目目录结构</h3>
-        <div class="code-block">
-<span class="comment"># x-algorithm/</span>
-├── home-mixer/       <span class="comment"># 编排层 (Rust)</span>
-│   ├── sources/      <span class="comment"># Thunder & Phoenix 数据源</span>
-│   ├── filters/      <span class="comment"># 12 个过滤器</span>
-│   ├── scorers/      <span class="comment"># 4 个评分器</span>
-│   └── main.rs       <span class="comment"># gRPC 服务入口</span>
-├── thunder/          <span class="comment"># 内存帖子引擎 (Rust)</span>
-│   ├── kafka/        <span class="comment"># Kafka 消费者</span>
-│   └── posts/        <span class="comment"># 内存存储</span>
-├── phoenix/          <span class="comment"># ML 模型 (Python/JAX)</span>
-│   ├── recsys_model.py       <span class="comment"># Transformer 排序</span>
-│   └── recsys_retrieval_model.py  <span class="comment"># Two-Tower 召回</span>
-└── candidate-pipeline/  <span class="comment"># 可复用框架 (Rust)</span>
-        </div>
+      <div class="card" style="padding:16px;">
+        <div style="font-size:1.4rem;margin-bottom:6px;">⚡</div>
+        <h3 style="font-size:.88rem;">Rust 1.70+</h3>
+        <p>运行 Thunder / Home Mixer</p>
+      </div>
+      <div class="card" style="padding:16px;">
+        <div style="font-size:1.4rem;margin-bottom:6px;">📦</div>
+        <h3 style="font-size:.88rem;">uv</h3>
+        <p>Python 包管理器（推荐）</p>
+      </div>
+      <div class="card" style="padding:16px;">
+        <div style="font-size:1.4rem;margin-bottom:6px;">📨</div>
+        <h3 style="font-size:.88rem;">Kafka（可选）</h3>
+        <p>Thunder 实时事件摄取</p>
       </div>
     </div>
 
-    <h3 style="font-size:.95rem;margin-bottom:12px;">运行 Phoenix 排序模型</h3>
-    <div class="code-block">
-<span class="comment"># 1. 进入 phoenix 目录</span>
+    <!-- 项目目录结构 -->
+    <h3 style="font-size:.95rem;margin-bottom:14px;">项目目录结构</h3>
+    <div class="code-block" style="margin-bottom:36px;line-height:1.8;">
+<span class="comment">x-algorithm/</span>
+├── <span class="cmd">home-mixer/</span>               <span class="comment"># 编排层 — 流水线调度 + gRPC 服务入口 (Rust)</span>
+│   ├── sources/              <span class="comment"># Thunder & Phoenix 两路候选数据源</span>
+│   ├── candidate_hydrators/  <span class="comment"># 候选数据丰富（文本/媒体/作者）</span>
+│   ├── filters/              <span class="comment"># 前置 + 后置共 12 个过滤器</span>
+│   ├── scorers/              <span class="comment"># Phoenix / Weighted / Diversity / OON 4 个评分器</span>
+│   ├── query_hydrators/      <span class="comment"># 用户上下文获取（互动历史 + 关注列表）</span>
+│   ├── side_effects/         <span class="comment"># 异步副作用（写已服务缓存等）</span>
+│   └── main.rs               <span class="comment"># gRPC 服务启动入口</span>
+│
+├── <span class="cmd">thunder/</span>                  <span class="comment"># 站内内存帖子引擎 — 亚毫秒级候选查询 (Rust)</span>
+│   ├── kafka/                <span class="comment"># Kafka 消费者，实时摄取帖子创建/删除事件</span>
+│   └── posts/                <span class="comment"># PostStore 内存存储（原创 / 回复 / 视频三队列）</span>
+│
+├── <span class="cmd">phoenix/</span>                  <span class="comment"># ML 推荐引擎 — 召回 + 排序 (Python / JAX)</span>
+│   ├── recsys_model.py       <span class="comment"># Transformer 排序模型（Grok-1 架构 + 候选隔离掩码）</span>
+│   ├── recsys_retrieval_model.py  <span class="comment"># Two-Tower 双塔召回模型</span>
+│   ├── grok.py               <span class="comment"># 基础 Transformer 层（移植自 xAI Grok-1）</span>
+│   ├── run_ranker.py         <span class="comment"># 排序模型运行入口</span>
+│   └── run_retrieval.py      <span class="comment"># 召回模型运行入口</span>
+│
+└── <span class="cmd">candidate-pipeline/</span>       <span class="comment"># 可复用流水线框架 — 定义 6 个核心 Trait (Rust)</span>
+    ├── source.rs             <span class="comment"># Source Trait</span>
+    ├── hydrator.rs           <span class="comment"># Hydrator Trait</span>
+    ├── filter.rs             <span class="comment"># Filter Trait</span>
+    ├── scorer.rs             <span class="comment"># Scorer Trait</span>
+    ├── selector.rs           <span class="comment"># Selector Trait</span>
+    └── side_effect.rs        <span class="comment"># SideEffect Trait</span>
+    </div>
+
+    <!-- 运行命令：两列并排 -->
+    <h3 style="font-size:.95rem;margin-bottom:14px;">运行命令</h3>
+    <div class="grid2" style="gap:20px;">
+      <div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <span style="font-size:1rem;">🐍</span>
+          <span style="font-size:.88rem;font-weight:700;color:var(--accent);">Phoenix ML 模型（Python）</span>
+        </div>
+        <div class="code-block" style="line-height:2;">
+<span class="comment"># 进入 phoenix 目录</span>
 <span class="cmd">cd phoenix</span>
 
-<span class="comment"># 2. 安装依赖（使用 uv）</span>
+<span class="comment"># 安装依赖</span>
 <span class="cmd">uv sync</span>
 
-<span class="comment"># 3. 运行 Transformer 排序器（随机模拟数据）</span>
+<span class="comment"># 运行 Transformer 排序器</span>
 <span class="cmd">uv run run_ranker.py</span>
 
-<span class="comment"># 4. 运行 Two-Tower 召回模型</span>
+<span class="comment"># 运行 Two-Tower 召回模型</span>
 <span class="cmd">uv run run_retrieval.py</span>
 
-<span class="comment"># 5. 运行单元测试</span>
-<span class="cmd">uv run pytest test_recsys_model.py test_recsys_retrieval_model.py</span>
-    </div>
-
-    <h3 style="font-size:.95rem;margin-bottom:12px;margin-top:20px;">运行 Rust 服务</h3>
-    <div class="code-block">
-<span class="comment"># 构建并运行 Home Mixer（编排层）</span>
+<span class="comment"># 运行单元测试</span>
+<span class="cmd">uv run pytest</span>
+        </div>
+      </div>
+      <div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <span style="font-size:1rem;">⚡</span>
+          <span style="font-size:.88rem;font-weight:700;color:#fbbf24;">Rust 服务</span>
+        </div>
+        <div class="code-block" style="line-height:2;">
+<span class="comment"># 启动编排层 gRPC 服务</span>
 <span class="cmd">cargo run -p home-mixer</span>
 
-<span class="comment"># 构建并运行 Thunder（站内内容引擎）</span>
+<span class="comment"># 启动内存帖子引擎</span>
 <span class="cmd">cargo run -p thunder</span>
 
 <span class="comment"># 运行所有 Rust 测试</span>
 <span class="cmd">cargo test</span>
+        </div>
+      </div>
     </div>
 
   </div>
