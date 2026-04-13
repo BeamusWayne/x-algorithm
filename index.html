@@ -1,0 +1,1216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>X 推荐算法 · 架构解析</title>
+  <style>
+    :root {
+      --bg: #0d0d0d;
+      --surface: #111827;
+      --surface2: #1f2937;
+      --border: #374151;
+      --accent: #1d9bf0;
+      --accent2: #7c3aed;
+      --accent3: #059669;
+      --accent4: #d97706;
+      --text: #f9fafb;
+      --text2: #9ca3af;
+      --text3: #6b7280;
+      --danger: #ef4444;
+      --r: 12px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* ── Hero ── */
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: 100px 24px 80px;
+      text-align: center;
+      background: radial-gradient(ellipse 80% 60% at 50% 0%, #1d9bf020 0%, transparent 70%);
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%231d9bf0' fill-opacity='0.04'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+      pointer-events: none;
+    }
+    .hero-badge {
+      display: inline-block;
+      background: #1d9bf015;
+      border: 1px solid #1d9bf030;
+      color: var(--accent);
+      padding: 4px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: .05em;
+      margin-bottom: 20px;
+    }
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3.5rem);
+      font-weight: 800;
+      letter-spacing: -.03em;
+      line-height: 1.1;
+      margin-bottom: 20px;
+    }
+    .hero h1 span { color: var(--accent); }
+    .hero p {
+      max-width: 600px;
+      margin: 0 auto 36px;
+      color: var(--text2);
+      font-size: 1.05rem;
+    }
+    .hero-stats {
+      display: flex;
+      justify-content: center;
+      gap: 40px;
+      flex-wrap: wrap;
+    }
+    .stat { text-align: center; }
+    .stat-num { font-size: 1.8rem; font-weight: 800; color: var(--accent); }
+    .stat-label { font-size: .8rem; color: var(--text3); text-transform: uppercase; letter-spacing: .08em; }
+
+    /* ── Nav ── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(13,13,13,.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+    }
+    nav ul {
+      display: flex;
+      list-style: none;
+      gap: 4px;
+      max-width: 900px;
+      margin: 0 auto;
+      overflow-x: auto;
+    }
+    nav a {
+      display: block;
+      padding: 14px 14px;
+      color: var(--text2);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+      transition: color .2s;
+    }
+    nav a:hover { color: var(--accent); }
+
+    /* ── Layout ── */
+    .container { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+    section { padding: 72px 0; border-bottom: 1px solid var(--border); }
+    section:last-child { border-bottom: none; }
+
+    h2 {
+      font-size: 1.75rem;
+      font-weight: 800;
+      letter-spacing: -.02em;
+      margin-bottom: 8px;
+    }
+    h2 .tag {
+      display: inline-block;
+      font-size: .7rem;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      border: 1px solid #1d9bf040;
+      border-radius: 4px;
+      padding: 2px 8px;
+      margin-right: 10px;
+      vertical-align: middle;
+    }
+    .section-desc { color: var(--text2); margin-bottom: 36px; max-width: 620px; }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 24px;
+      transition: border-color .2s, transform .2s;
+    }
+    .card:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .card-icon {
+      width: 42px; height: 42px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.25rem;
+      margin-bottom: 14px;
+    }
+    .card h3 { font-size: 1rem; font-weight: 700; margin-bottom: 6px; }
+    .card p { font-size: .875rem; color: var(--text2); line-height: 1.5; }
+
+    .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+    .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+    .grid4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+
+    /* ── Pipeline Flow ── */
+    .pipeline {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      position: relative;
+    }
+    .pipe-step {
+      display: flex;
+      align-items: flex-start;
+      gap: 20px;
+      position: relative;
+    }
+    .pipe-step:not(:last-child)::after {
+      content: '';
+      position: absolute;
+      left: 19px;
+      top: 44px;
+      width: 2px;
+      height: calc(100% - 8px);
+      background: linear-gradient(to bottom, var(--accent) 0%, var(--border) 100%);
+    }
+    .pipe-num {
+      flex-shrink: 0;
+      width: 40px; height: 40px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      font-size: .875rem;
+      font-weight: 800;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 0 0 4px #1d9bf015;
+    }
+    .pipe-content {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 18px 20px;
+      flex: 1;
+      margin-bottom: 16px;
+    }
+    .pipe-content h3 { font-size: .95rem; font-weight: 700; margin-bottom: 4px; }
+    .pipe-content p { font-size: .85rem; color: var(--text2); }
+    .pipe-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .tag-chip {
+      font-size: .72rem;
+      font-weight: 600;
+      padding: 2px 10px;
+      border-radius: 999px;
+      letter-spacing: .04em;
+    }
+    .chip-blue { background: #1d9bf015; color: var(--accent); border: 1px solid #1d9bf030; }
+    .chip-purple { background: #7c3aed15; color: #a78bfa; border: 1px solid #7c3aed30; }
+    .chip-green { background: #05966915; color: #34d399; border: 1px solid #05966930; }
+    .chip-orange { background: #d9770615; color: #fbbf24; border: 1px solid #d9770630; }
+    .chip-red { background: #ef444415; color: #f87171; border: 1px solid #ef444430; }
+
+    /* ── Component Cards ── */
+    .comp-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      overflow: hidden;
+      margin-bottom: 20px;
+    }
+    .comp-header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    .comp-icon {
+      width: 44px; height: 44px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.35rem;
+      flex-shrink: 0;
+    }
+    .comp-title { font-size: 1.1rem; font-weight: 800; }
+    .comp-sub { font-size: .8rem; color: var(--text3); }
+    .comp-body { padding: 20px 24px; }
+    .comp-body p { color: var(--text2); font-size: .9rem; margin-bottom: 14px; }
+
+    /* ── Table ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .85rem;
+      margin-top: 12px;
+    }
+    th {
+      text-align: left;
+      padding: 8px 12px;
+      background: var(--surface2);
+      color: var(--text3);
+      font-size: .72rem;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #1f2937;
+      color: var(--text2);
+      vertical-align: top;
+    }
+    td:first-child { color: var(--text); font-weight: 600; font-family: 'SF Mono', monospace; font-size: .8rem; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #ffffff05; }
+
+    /* ── Arch Diagram ── */
+    .arch-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 32px 24px;
+      position: relative;
+      overflow: hidden;
+    }
+    .arch-flow {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+    }
+    .arch-node {
+      width: 100%;
+      max-width: 600px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 20px;
+      text-align: center;
+      position: relative;
+      z-index: 1;
+    }
+    .arch-node.top {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px #1d9bf030, 0 4px 20px #1d9bf015;
+    }
+    .arch-node.bottom {
+      border-color: var(--accent3);
+      box-shadow: 0 0 0 1px #05966930, 0 4px 20px #05966915;
+    }
+    .arch-node h4 { font-size: .9rem; font-weight: 700; margin-bottom: 2px; }
+    .arch-node p { font-size: .78rem; color: var(--text3); }
+    .arch-arrow {
+      width: 2px;
+      height: 30px;
+      background: linear-gradient(to bottom, var(--accent), var(--border));
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      position: relative;
+    }
+    .arch-arrow::after {
+      content: '▼';
+      font-size: 10px;
+      color: var(--accent);
+      position: absolute;
+      bottom: -2px;
+    }
+    .arch-split {
+      display: flex;
+      gap: 16px;
+      width: 100%;
+      max-width: 600px;
+    }
+    .arch-split .arch-node { flex: 1; }
+    .arch-split-lines {
+      display: flex;
+      justify-content: center;
+      gap: 0;
+      width: 100%;
+      max-width: 600px;
+      height: 30px;
+      position: relative;
+    }
+    .arch-split-lines::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 50%;
+      width: 2px;
+      height: 100%;
+      background: var(--border);
+      transform: translateX(-50%);
+    }
+    .arch-split-lines::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 25%;
+      right: 25%;
+      height: 2px;
+      background: var(--border);
+    }
+
+    /* ── Score Formula ── */
+    .formula-box {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 24px;
+      text-align: center;
+      font-family: 'SF Mono', 'Cascadia Code', monospace;
+      margin: 24px 0;
+    }
+    .formula {
+      font-size: 1.2rem;
+      color: var(--accent);
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .formula-note { font-size: .8rem; color: var(--text3); font-family: sans-serif; }
+
+    /* ── Action Pills ── */
+    .actions-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .action-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: .82rem;
+      font-weight: 600;
+      border: 1px solid;
+    }
+    .action-pos { background: #05966910; border-color: #05966930; color: #34d399; }
+    .action-neg { background: #ef444410; border-color: #ef444430; color: #f87171; }
+    .action-neu { background: #1d9bf010; border-color: #1d9bf030; color: var(--accent); }
+
+    /* ── Design Decisions ── */
+    .decision-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      border-radius: 0 var(--r) var(--r) 0;
+      padding: 20px 24px;
+      margin-bottom: 14px;
+    }
+    .decision-card h3 {
+      font-size: .95rem;
+      font-weight: 700;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .decision-card h3 .num {
+      width: 24px; height: 24px;
+      background: var(--accent);
+      border-radius: 50%;
+      font-size: .72rem;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      color: #fff;
+    }
+    .decision-card p { font-size: .875rem; color: var(--text2); }
+
+    /* ── Quick Start ── */
+    .code-block {
+      background: #0a0a0a;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin: 12px 0;
+      font-family: 'SF Mono', 'Cascadia Code', monospace;
+      font-size: .82rem;
+      color: #e5e7eb;
+      overflow-x: auto;
+      position: relative;
+    }
+    .code-block .comment { color: #4b5563; }
+    .code-block .cmd { color: #34d399; }
+    .code-block .str { color: #fbbf24; }
+
+    /* ── Attention Mask ── */
+    .mask-grid {
+      display: grid;
+      font-family: monospace;
+      font-size: .8rem;
+      gap: 2px;
+      margin: 16px 0;
+    }
+    .mask-row { display: flex; gap: 2px; align-items: center; }
+    .mask-cell {
+      width: 28px; height: 28px;
+      border-radius: 4px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: .75rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .mask-yes { background: #1d9bf020; color: var(--accent); border: 1px solid #1d9bf030; }
+    .mask-no { background: #ef444410; color: #f87171; border: 1px solid #ef444420; }
+    .mask-label { color: var(--text3); font-size: .72rem; margin-right: 6px; min-width: 60px; text-align: right; font-family: sans-serif; }
+
+    /* ── Footer ── */
+    footer {
+      text-align: center;
+      padding: 48px 24px;
+      color: var(--text3);
+      font-size: .85rem;
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+
+    /* ── Animations ── */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .animate { animation: fadeUp .6s ease both; }
+    .delay1 { animation-delay: .1s; }
+    .delay2 { animation-delay: .2s; }
+    .delay3 { animation-delay: .3s; }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      .hero { padding: 72px 16px 56px; }
+      .hero-stats { gap: 24px; }
+      section { padding: 48px 0; }
+      h2 { font-size: 1.4rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════ HERO ═══════════════════════════ -->
+<div class="hero">
+  <div class="hero-badge">开源推荐系统</div>
+  <h1>X <span>For You Feed</span><br/>推荐算法解析</h1>
+  <p>深度拆解 X 平台「为你推荐」信息流背后的完整技术架构——从候选召回、实时存储到 Grok Transformer 排序，一图看懂整个系统。</p>
+  <div class="hero-stats">
+    <div class="stat">
+      <div class="stat-num">4</div>
+      <div class="stat-label">核心模块</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">7</div>
+      <div class="stat-label">流水线阶段</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">15+</div>
+      <div class="stat-label">行为预测维度</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">0</div>
+      <div class="stat-label">手工特征工程</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════ NAV ═══════════════════════════ -->
+<nav>
+  <ul>
+    <li><a href="#overview">概览</a></li>
+    <li><a href="#architecture">系统架构</a></li>
+    <li><a href="#components">核心组件</a></li>
+    <li><a href="#pipeline">流水线</a></li>
+    <li><a href="#scoring">评分排名</a></li>
+    <li><a href="#filtering">过滤机制</a></li>
+    <li><a href="#design">设计决策</a></li>
+    <li><a href="#quickstart">快速上手</a></li>
+  </ul>
+</nav>
+
+<!-- ═══════════════════════════ OVERVIEW ═══════════════════════════ -->
+<section id="overview">
+  <div class="container">
+    <h2><span class="tag">Overview</span>系统概览</h2>
+    <p class="section-desc">「为你推荐」信息流结合了两个来源的内容，并通过机器学习模型进行统一排序。</p>
+
+    <div class="grid2">
+      <div class="card" style="border-left: 3px solid var(--accent);">
+        <div class="card-icon" style="background:#1d9bf015;">⚡</div>
+        <h3>站内网络（In-Network）</h3>
+        <p>来自你已关注账号的最新帖子，由 <strong>Thunder</strong> 模块在内存中实时维护，查询延迟在毫秒级以内。</p>
+      </div>
+      <div class="card" style="border-left: 3px solid var(--accent2);">
+        <div class="card-icon" style="background:#7c3aed15;">🌐</div>
+        <h3>站外网络（Out-of-Network）</h3>
+        <p>通过 <strong>Phoenix 检索</strong> 从全量语料库中挖掘你可能感兴趣但尚未关注的账号内容，基于相似度搜索实现。</p>
+      </div>
+      <div class="card" style="border-left: 3px solid var(--accent3);">
+        <div class="card-icon" style="background:#05966915;">🤖</div>
+        <h3>Grok Transformer 排序</h3>
+        <p>两路候选合并后，由基于 Grok 的 Transformer 模型预测每个帖子引发各类互动的概率，生成最终排序分数。</p>
+      </div>
+      <div class="card" style="border-left: 3px solid var(--accent4);">
+        <div class="card-icon" style="background:#d9770615;">🎯</div>
+        <h3>零手工特征工程</h3>
+        <p>系统彻底去除了人工设计的特征和大部分启发式规则。Transformer 直接从你的互动历史序列中学习内容相关性。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ ARCHITECTURE ═══════════════════════════ -->
+<section id="architecture">
+  <div class="container">
+    <h2><span class="tag">Architecture</span>系统架构全貌</h2>
+    <p class="section-desc">一次「为你推荐」请求经过以下完整链路处理，最终返回个性化排序结果。</p>
+
+    <div class="arch-box">
+      <div class="arch-flow">
+
+        <div class="arch-node top">
+          <h4>📥 用户请求 · For You Feed Request</h4>
+          <p>用户打开 X App，触发信息流加载请求</p>
+        </div>
+
+        <div class="arch-arrow"></div>
+
+        <div class="arch-node" style="border-color: var(--accent); box-shadow: 0 0 0 1px #1d9bf020; background: #1d9bf008;">
+          <h4>🎛 Home Mixer · 编排层</h4>
+          <p>整个流水线的调度核心，协调所有阶段的并行与串行执行</p>
+        </div>
+
+        <div class="arch-arrow"></div>
+
+        <!-- Query Hydration -->
+        <div class="arch-node">
+          <h4>💧 Query Hydration · 查询增强</h4>
+          <p>获取用户的互动历史序列 + 关注列表 + 用户特征</p>
+        </div>
+
+        <div class="arch-arrow"></div>
+
+        <!-- Split: Thunder + Phoenix -->
+        <div class="arch-split-lines"></div>
+        <div class="arch-split">
+          <div class="arch-node" style="border-color: var(--accent); background: #1d9bf008;">
+            <h4>⚡ Thunder</h4>
+            <p>站内网络候选<br/>（关注账号的帖子）</p>
+          </div>
+          <div class="arch-node" style="border-color: var(--accent2); background: #7c3aed08;">
+            <h4>🔮 Phoenix 检索</h4>
+            <p>站外网络候选<br/>（ML 相似度搜索）</p>
+          </div>
+        </div>
+
+        <div class="arch-arrow" style="background: linear-gradient(to bottom, var(--border), var(--accent));"></div>
+
+        <div class="arch-node">
+          <h4>📦 Hydration · 候选丰富</h4>
+          <p>补全帖子核心数据、作者信息、媒体实体等</p>
+        </div>
+
+        <div class="arch-arrow"></div>
+
+        <div class="arch-node">
+          <h4>🚫 Pre-Scoring Filters · 前置过滤</h4>
+          <p>去重 · 屏蔽词过滤 · 已看过的帖子 · 年龄过滤等</p>
+        </div>
+
+        <div class="arch-arrow"></div>
+
+        <div class="arch-node" style="border-color: var(--accent3); background: #05966908;">
+          <h4>🧠 Scoring · ML 评分</h4>
+          <p>Phoenix Scorer → 加权评分 → 作者多样性调整 → 站外分调整</p>
+        </div>
+
+        <div class="arch-arrow"></div>
+
+        <div class="arch-node">
+          <h4>🏆 Selection · 候选择优</h4>
+          <p>按最终分数排序，取 Top-K 候选</p>
+        </div>
+
+        <div class="arch-arrow"></div>
+
+        <div class="arch-node">
+          <h4>🔒 Post-Selection Filters · 后置过滤</h4>
+          <p>可见性过滤（删帖 / 垃圾内容 / 暴力内容等）· 会话去重</p>
+        </div>
+
+        <div class="arch-arrow" style="background: linear-gradient(to bottom, var(--border), var(--accent3));"></div>
+
+        <div class="arch-node bottom">
+          <h4>📤 返回排序后的信息流</h4>
+          <p>个性化推荐结果呈现给用户</p>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ COMPONENTS ═══════════════════════════ -->
+<section id="components">
+  <div class="container">
+    <h2><span class="tag">Components</span>核心组件详解</h2>
+    <p class="section-desc">系统由四个主要模块组成，各司其职、相互协作。</p>
+
+    <!-- Home Mixer -->
+    <div class="comp-card">
+      <div class="comp-header">
+        <div class="comp-icon" style="background:#1d9bf015; font-size:1.5rem;">🎛</div>
+        <div>
+          <div class="comp-title">Home Mixer · 编排层</div>
+          <div class="comp-sub">home-mixer/ · Rust</div>
+        </div>
+        <div style="margin-left:auto;">
+          <span class="tag-chip chip-blue">gRPC 服务</span>
+        </div>
+      </div>
+      <div class="comp-body">
+        <p>Home Mixer 是整个系统的大脑，负责编排和调度所有流水线阶段。它对外暴露一个 gRPC 接口（<code style="color:var(--accent);font-size:.82rem;">ScoredPostsService</code>），接收用户 ID 后返回个性化排序帖子列表。</p>
+        <table>
+          <tr><th>阶段</th><th>作用</th></tr>
+          <tr><td>Query Hydrators</td><td>获取用户互动历史、关注列表等上下文信息</td></tr>
+          <tr><td>Sources</td><td>并行从 Thunder 和 Phoenix 拉取候选帖子</td></tr>
+          <tr><td>Hydrators</td><td>为候选帖子补全额外数据（媒体、作者信息等）</td></tr>
+          <tr><td>Filters</td><td>移除不应展示的候选（重复、屏蔽、过期等）</td></tr>
+          <tr><td>Scorers</td><td>预测用户互动概率，计算最终排序分数</td></tr>
+          <tr><td>Selector</td><td>按分数降序排列，选取 Top-K</td></tr>
+          <tr><td>Post-Selection Filters</td><td>最终可见性检查与会话去重</td></tr>
+          <tr><td>Side Effects</td><td>异步缓存请求信息，用于下次推荐</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- Thunder -->
+    <div class="comp-card">
+      <div class="comp-header">
+        <div class="comp-icon" style="background:#1d9bf015; font-size:1.5rem;">⚡</div>
+        <div>
+          <div class="comp-title">Thunder · 站内内容引擎</div>
+          <div class="comp-sub">thunder/ · Rust</div>
+        </div>
+        <div style="margin-left:auto;">
+          <span class="tag-chip chip-blue">内存存储</span>
+          <span class="tag-chip chip-orange" style="margin-left:4px;">Kafka</span>
+        </div>
+      </div>
+      <div class="comp-body">
+        <p>Thunder 是一个高性能的内存帖子存储系统，实时消费 Kafka 中的帖子创建/删除事件。它为每个用户维护三种帖子列表：</p>
+        <div class="grid3" style="margin:12px 0;">
+          <div style="background:var(--surface2);border-radius:8px;padding:12px;border:1px solid var(--border);">
+            <div style="color:var(--accent);font-size:.8rem;font-weight:700;margin-bottom:4px;">原创帖子</div>
+            <div style="color:var(--text2);font-size:.8rem;">用户发布的原始 Posts</div>
+          </div>
+          <div style="background:var(--surface2);border-radius:8px;padding:12px;border:1px solid var(--border);">
+            <div style="color:var(--accent);font-size:.8rem;font-weight:700;margin-bottom:4px;">回复与转发</div>
+            <div style="color:var(--text2);font-size:.8rem;">Replies 和 Reposts</div>
+          </div>
+          <div style="background:var(--surface2);border-radius:8px;padding:12px;border:1px solid var(--border);">
+            <div style="color:var(--accent);font-size:.8rem;font-weight:700;margin-bottom:4px;">视频帖子</div>
+            <div style="color:var(--text2);font-size:.8rem;">含视频内容的 Posts</div>
+          </div>
+        </div>
+        <p>过期帖子会自动清理，保持存储精简。正因为全部数据驻留内存，Thunder 可以在<strong>亚毫秒级</strong>内完成站内候选的查询，无需访问外部数据库。</p>
+      </div>
+    </div>
+
+    <!-- Phoenix -->
+    <div class="comp-card">
+      <div class="comp-header">
+        <div class="comp-icon" style="background:#7c3aed15; font-size:1.5rem;">🔮</div>
+        <div>
+          <div class="comp-title">Phoenix · ML 推荐引擎</div>
+          <div class="comp-sub">phoenix/ · Python (JAX)</div>
+        </div>
+        <div style="margin-left:auto;">
+          <span class="tag-chip chip-purple">Two-Tower</span>
+          <span class="tag-chip chip-purple" style="margin-left:4px;">Transformer</span>
+        </div>
+      </div>
+      <div class="comp-body">
+        <p>Phoenix 是系统的 ML 核心，承担两大职责：</p>
+
+        <div style="background:var(--surface2);border-radius:8px;padding:16px 20px;margin:12px 0;border:1px solid var(--border);">
+          <h3 style="font-size:.9rem;margin-bottom:8px;color:var(--accent);">① 召回阶段 · Two-Tower 模型</h3>
+          <p style="font-size:.85rem;color:var(--text2);margin-bottom:0;">
+            <strong style="color:var(--text);">用户塔：</strong>将用户特征和互动历史编码为向量 Embedding<br/>
+            <strong style="color:var(--text);">候选塔：</strong>将全量帖子编码为 Embedding<br/>
+            <strong style="color:var(--text);">相似搜索：</strong>通过点积计算取 Top-K 最相似候选（ANN）
+          </p>
+        </div>
+
+        <div style="background:var(--surface2);border-radius:8px;padding:16px 20px;margin:12px 0;border:1px solid var(--border);">
+          <h3 style="font-size:.9rem;margin-bottom:8px;color:#a78bfa;">② 排序阶段 · Transformer with Candidate Isolation</h3>
+          <p style="font-size:.85rem;color:var(--text2);margin-bottom:8px;">基于 Grok-1 的 Transformer 架构，输入用户上下文 + 候选帖子，输出每个候选引发各类互动的概率。</p>
+          <p style="font-size:.85rem;color:var(--text2);margin-bottom:0;">
+            关键设计：<strong style="color:#a78bfa;">候选隔离注意力掩码</strong>——候选帖子之间无法相互注意，只能各自独立关注用户上下文，确保评分独立可缓存。
+          </p>
+        </div>
+
+        <!-- Attention Mask Visual -->
+        <div style="overflow-x:auto;margin-top:16px;">
+          <p style="font-size:.8rem;color:var(--text3);margin-bottom:8px;font-weight:600;">注意力掩码可视化（✓ 可关注 · ✗ 不可关注）</p>
+          <div class="mask-grid">
+            <div class="mask-row">
+              <div class="mask-label"></div>
+              <div style="display:flex;gap:2px;align-items:center;">
+                <div style="width:28px;text-align:center;font-size:.65rem;color:var(--text3);">User</div>
+                <div style="width:86px;text-align:center;font-size:.65rem;color:var(--text3);">History (×3)</div>
+                <div style="width:114px;text-align:center;font-size:.65rem;color:var(--text3);">Candidates (×4)</div>
+              </div>
+            </div>
+            <div class="mask-row">
+              <div class="mask-label">User</div>
+              <div style="display:flex;gap:2px;">
+                <div class="mask-cell mask-yes">✓</div>
+                <div class="mask-cell mask-yes">✓</div><div class="mask-cell mask-yes">✓</div><div class="mask-cell mask-yes">✓</div>
+                <div class="mask-cell mask-no">✗</div><div class="mask-cell mask-no">✗</div><div class="mask-cell mask-no">✗</div><div class="mask-cell mask-no">✗</div>
+              </div>
+            </div>
+            <div class="mask-row">
+              <div class="mask-label">History</div>
+              <div style="display:flex;gap:2px;">
+                <div class="mask-cell mask-yes">✓</div>
+                <div class="mask-cell mask-yes">✓</div><div class="mask-cell mask-yes">✓</div><div class="mask-cell mask-yes">✓</div>
+                <div class="mask-cell mask-no">✗</div><div class="mask-cell mask-no">✗</div><div class="mask-cell mask-no">✗</div><div class="mask-cell mask-no">✗</div>
+              </div>
+            </div>
+            <div class="mask-row">
+              <div class="mask-label">Cand. 1</div>
+              <div style="display:flex;gap:2px;">
+                <div class="mask-cell mask-yes">✓</div>
+                <div class="mask-cell mask-yes">✓</div><div class="mask-cell mask-yes">✓</div><div class="mask-cell mask-yes">✓</div>
+                <div class="mask-cell mask-yes">✓</div><div class="mask-cell mask-no">✗</div><div class="mask-cell mask-no">✗</div><div class="mask-cell mask-no">✗</div>
+              </div>
+            </div>
+            <div class="mask-row">
+              <div class="mask-label">Cand. 2</div>
+              <div style="display:flex;gap:2px;">
+                <div class="mask-cell mask-yes">✓</div>
+                <div class="mask-cell mask-yes">✓</div><div class="mask-cell mask-yes">✓</div><div class="mask-cell mask-yes">✓</div>
+                <div class="mask-cell mask-no">✗</div><div class="mask-cell mask-yes">✓</div><div class="mask-cell mask-no">✗</div><div class="mask-cell mask-no">✗</div>
+              </div>
+            </div>
+          </div>
+          <p style="font-size:.75rem;color:var(--text3);margin-top:6px;">候选只能关注自身 + 用户 + 历史，无法关注其他候选 → 评分结果独立、可缓存</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Candidate Pipeline -->
+    <div class="comp-card">
+      <div class="comp-header">
+        <div class="comp-icon" style="background:#05966915; font-size:1.5rem;">🏗</div>
+        <div>
+          <div class="comp-title">Candidate Pipeline · 可复用框架</div>
+          <div class="comp-sub">candidate-pipeline/ · Rust</div>
+        </div>
+        <div style="margin-left:auto;">
+          <span class="tag-chip chip-green">Framework</span>
+        </div>
+      </div>
+      <div class="comp-body">
+        <p>一个通用的推荐流水线框架，定义了构建推荐系统所需的标准 Trait（接口），让业务逻辑与执行框架完全解耦。</p>
+        <div class="grid3">
+          <div style="text-align:center;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">
+            <div style="font-size:1.3rem;margin-bottom:6px;">📡</div>
+            <div style="font-size:.8rem;font-weight:700;color:var(--accent);">Source</div>
+            <div style="font-size:.75rem;color:var(--text3);">从数据源获取候选</div>
+          </div>
+          <div style="text-align:center;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">
+            <div style="font-size:1.3rem;margin-bottom:6px;">💉</div>
+            <div style="font-size:.8rem;font-weight:700;color:var(--accent);">Hydrator</div>
+            <div style="font-size:.75rem;color:var(--text3);">丰富候选特征数据</div>
+          </div>
+          <div style="text-align:center;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">
+            <div style="font-size:1.3rem;margin-bottom:6px;">🚫</div>
+            <div style="font-size:.8rem;font-weight:700;color:var(--accent);">Filter</div>
+            <div style="font-size:.75rem;color:var(--text3);">移除不合格候选</div>
+          </div>
+          <div style="text-align:center;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">
+            <div style="font-size:1.3rem;margin-bottom:6px;">📊</div>
+            <div style="font-size:.8rem;font-weight:700;color:var(--accent);">Scorer</div>
+            <div style="font-size:.75rem;color:var(--text3);">计算候选排序分</div>
+          </div>
+          <div style="text-align:center;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">
+            <div style="font-size:1.3rem;margin-bottom:6px;">🏆</div>
+            <div style="font-size:.8rem;font-weight:700;color:var(--accent);">Selector</div>
+            <div style="font-size:.75rem;color:var(--text3);">排序并选 Top-K</div>
+          </div>
+          <div style="text-align:center;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">
+            <div style="font-size:1.3rem;margin-bottom:6px;">📝</div>
+            <div style="font-size:.8rem;font-weight:700;color:var(--accent);">SideEffect</div>
+            <div style="font-size:.75rem;color:var(--text3);">异步缓存/日志</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ═══════════════════════════ PIPELINE ═══════════════════════════ -->
+<section id="pipeline">
+  <div class="container">
+    <h2><span class="tag">Pipeline</span>七阶段流水线</h2>
+    <p class="section-desc">每个请求按顺序经历以下七个处理阶段，各阶段之间独立且可并行。</p>
+
+    <div class="pipeline">
+      <div class="pipe-step">
+        <div class="pipe-num">1</div>
+        <div class="pipe-content">
+          <h3>Query Hydration · 查询上下文增强</h3>
+          <p>从数据存储中获取用户的<strong>近期互动历史序列</strong>（点赞、转发、回复等）以及关注列表、用户偏好等元信息，为后续召回和排序提供上下文。</p>
+          <div class="pipe-tags">
+            <span class="tag-chip chip-blue">互动历史</span>
+            <span class="tag-chip chip-blue">关注列表</span>
+            <span class="tag-chip chip-blue">用户特征</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="pipe-step">
+        <div class="pipe-num">2</div>
+        <div class="pipe-content">
+          <h3>Candidate Sourcing · 候选召回</h3>
+          <p>并行从两个来源拉取候选帖子：<br/>
+          <strong>Thunder</strong> 返回已关注账号的最新帖子（站内，亚毫秒级）<br/>
+          <strong>Phoenix 检索</strong> 通过 Two-Tower 相似度搜索返回站外推荐帖子
+          </p>
+          <div class="pipe-tags">
+            <span class="tag-chip chip-blue">Thunder 站内</span>
+            <span class="tag-chip chip-purple">Phoenix 站外</span>
+            <span class="tag-chip chip-green">并行执行</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="pipe-step">
+        <div class="pipe-num">3</div>
+        <div class="pipe-content">
+          <h3>Candidate Hydration · 候选数据丰富</h3>
+          <p>为每个候选帖子补全额外数据，确保排序模型有足够的输入特征。</p>
+          <div class="pipe-tags">
+            <span class="tag-chip chip-blue">核心帖子数据（文字/媒体）</span>
+            <span class="tag-chip chip-blue">作者信息</span>
+            <span class="tag-chip chip-blue">视频时长</span>
+            <span class="tag-chip chip-orange">订阅状态</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="pipe-step">
+        <div class="pipe-num">4</div>
+        <div class="pipe-content">
+          <h3>Pre-Scoring Filters · 评分前过滤</h3>
+          <p>移除不应参与评分的候选，减少计算浪费，并保证内容质量。</p>
+          <div class="pipe-tags">
+            <span class="tag-chip chip-red">重复帖子</span>
+            <span class="tag-chip chip-red">过期内容</span>
+            <span class="tag-chip chip-red">自己的帖子</span>
+            <span class="tag-chip chip-red">已屏蔽作者</span>
+            <span class="tag-chip chip-red">静音关键词</span>
+            <span class="tag-chip chip-red">已看过的帖子</span>
+            <span class="tag-chip chip-red">付费墙内容</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="pipe-step">
+        <div class="pipe-num">5</div>
+        <div class="pipe-content">
+          <h3>Scoring · ML 多维评分</h3>
+          <p>依次应用四个评分器，最终分数综合了模型预测、多样性保障和站内外平衡：</p>
+          <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;">
+            <div style="background:var(--surface2);border-radius:6px;padding:8px 12px;border:1px solid var(--border);font-size:.83rem;">
+              <strong style="color:var(--accent);">Phoenix Scorer</strong> — Grok Transformer 预测各类互动概率
+            </div>
+            <div style="background:var(--surface2);border-radius:6px;padding:8px 12px;border:1px solid var(--border);font-size:.83rem;">
+              <strong style="color:var(--accent);">Weighted Scorer</strong> — 加权合并多个预测概率为单一分数
+            </div>
+            <div style="background:var(--surface2);border-radius:6px;padding:8px 12px;border:1px solid var(--border);font-size:.83rem;">
+              <strong style="color:var(--accent);">Author Diversity Scorer</strong> — 对同一作者反复出现进行分数衰减
+            </div>
+            <div style="background:var(--surface2);border-radius:6px;padding:8px 12px;border:1px solid var(--border);font-size:.83rem;">
+              <strong style="color:var(--accent);">OON Scorer</strong> — 对站外内容进行分数调整
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pipe-step">
+        <div class="pipe-num">6</div>
+        <div class="pipe-content">
+          <h3>Selection · 候选择优</h3>
+          <p>按最终分数降序排列所有候选帖子，选取分数最高的 Top-K 个候选，准备进入最终过滤阶段。</p>
+          <div class="pipe-tags">
+            <span class="tag-chip chip-green">降序排列</span>
+            <span class="tag-chip chip-green">取 Top-K</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="pipe-step">
+        <div class="pipe-num">7</div>
+        <div class="pipe-content">
+          <h3>Post-Selection Processing · 后置处理</h3>
+          <p>对已选出的候选做最终校验：过滤已删帖、垃圾内容、暴力内容等；对同一对话的多个分支进行去重。</p>
+          <div class="pipe-tags">
+            <span class="tag-chip chip-red">VF 可见性过滤</span>
+            <span class="tag-chip chip-red">对话去重</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ═══════════════════════════ SCORING ═══════════════════════════ -->
+<section id="scoring">
+  <div class="container">
+    <h2><span class="tag">Scoring</span>评分与排名机制</h2>
+    <p class="section-desc">理解 X 如何计算"你有多大可能与这条帖子互动"。</p>
+
+    <div class="formula-box">
+      <div class="formula">最终分数 = Σ (权重ᵢ × P(行为ᵢ))</div>
+      <div class="formula-note">正向行为（点赞、转发、分享）权重为正 · 负向行为（举报、拉黑、静音）权重为负</div>
+    </div>
+
+    <p style="color:var(--text2);font-size:.9rem;margin-bottom:16px;">Phoenix Transformer 同时预测 15 种互动概率：</p>
+
+    <div class="actions-grid">
+      <div class="action-pill action-pos">👍 点赞 Favorite</div>
+      <div class="action-pill action-pos">💬 回复 Reply</div>
+      <div class="action-pill action-pos">🔁 转发 Repost</div>
+      <div class="action-pill action-pos">💬 引用 Quote</div>
+      <div class="action-pill action-pos">🖱 点击 Click</div>
+      <div class="action-pill action-pos">👤 访问主页</div>
+      <div class="action-pill action-pos">▶️ 视频播放</div>
+      <div class="action-pill action-pos">🖼 展开图片</div>
+      <div class="action-pill action-pos">📤 分享 Share</div>
+      <div class="action-pill action-neu">⏱ 停留 Dwell</div>
+      <div class="action-pill action-pos">➕ 关注作者</div>
+      <div class="action-pill action-neg">👎 不感兴趣</div>
+      <div class="action-pill action-neg">🚫 拉黑作者</div>
+      <div class="action-pill action-neg">🔇 静音作者</div>
+      <div class="action-pill action-neg">⚠️ 举报 Report</div>
+    </div>
+
+    <div style="margin-top:24px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px 24px;">
+      <h3 style="font-size:.95rem;margin-bottom:12px;">💡 直观理解</h3>
+      <p style="font-size:.875rem;color:var(--text2);">
+        如果模型预测你有 80% 可能点赞这条帖子，10% 可能拉黑作者，那么这条帖子的原始分数就是：<br/><br/>
+        <code style="background:#0a0a0a;padding:6px 10px;border-radius:4px;color:var(--accent);font-size:.85rem;">
+          分数 = 0.80 × 正权重(点赞) + ... + 0.10 × 负权重(拉黑)
+        </code><br/><br/>
+        权重由工程师根据业务目标手动设定，但特征全部由模型自动学习——这是系统消除手工特征工程的核心所在。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ FILTERING ═══════════════════════════ -->
+<section id="filtering">
+  <div class="container">
+    <h2><span class="tag">Filtering</span>过滤机制详解</h2>
+    <p class="section-desc">过滤分两轮进行：评分前去除明显不合格候选，评分后做安全兜底。</p>
+
+    <div class="grid2">
+      <div>
+        <h3 style="font-size:1rem;margin-bottom:14px;color:var(--accent);">评分前过滤（Pre-Scoring）</h3>
+        <table>
+          <tr><th>过滤器</th><th>目的</th></tr>
+          <tr><td>DropDuplicatesFilter</td><td>去除重复帖子 ID</td></tr>
+          <tr><td>CoreDataHydrationFilter</td><td>移除核心数据缺失的帖子</td></tr>
+          <tr><td>AgeFilter</td><td>过滤超出时间窗口的旧帖</td></tr>
+          <tr><td>SelfpostFilter</td><td>不推荐用户自己发的帖子</td></tr>
+          <tr><td>RepostDeduplicationFilter</td><td>去除同一内容的重复转发</td></tr>
+          <tr><td>IneligibleSubscriptionFilter</td><td>过滤用户无权限访问的付费内容</td></tr>
+          <tr><td>PreviouslySeenPostsFilter</td><td>过滤用户已经看过的帖子</td></tr>
+          <tr><td>PreviouslyServedPostsFilter</td><td>过滤本次会话中已下发的帖子</td></tr>
+          <tr><td>MutedKeywordFilter</td><td>过滤含用户静音词的帖子</td></tr>
+          <tr><td>AuthorSocialgraphFilter</td><td>过滤被屏蔽/静音作者的帖子</td></tr>
+        </table>
+      </div>
+      <div>
+        <h3 style="font-size:1rem;margin-bottom:14px;color:var(--accent3);">评分后过滤（Post-Selection）</h3>
+        <table>
+          <tr><th>过滤器</th><th>目的</th></tr>
+          <tr><td>VFFilter</td><td>可见性过滤：删帖、垃圾、暴力、血腥等</td></tr>
+          <tr><td>DedupConversationFilter</td><td>同一对话的多个分支去重</td></tr>
+        </table>
+        <div style="margin-top:16px;background:var(--surface2);border-radius:8px;padding:16px;border:1px solid var(--border);">
+          <h4 style="font-size:.85rem;font-weight:700;margin-bottom:6px;">为什么分两轮？</h4>
+          <p style="font-size:.82rem;color:var(--text2);">
+            前置过滤在 ML 推断之前运行，减少昂贵的 Transformer 推断开销。<br/><br/>
+            后置过滤是最终安全兜底，确保即使在排序后仍能过滤违规内容（如帖子在排序后被删除）。
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ DESIGN DECISIONS ═══════════════════════════ -->
+<section id="design">
+  <div class="container">
+    <h2><span class="tag">Design</span>关键设计决策</h2>
+    <p class="section-desc">这些设计选择使系统既简洁又强大。</p>
+
+    <div class="decision-card">
+      <h3><span class="num">1</span>零手工特征工程</h3>
+      <p>系统完全依赖 Grok Transformer 从用户互动历史序列中自动学习内容相关性，无任何人工设计的内容相关特征。这大幅降低了数据管道和服务基础设施的复杂度，让模型能自适应用户行为变化。</p>
+    </div>
+
+    <div class="decision-card" style="border-left-color: var(--accent2);">
+      <h3><span class="num" style="background:var(--accent2);">2</span>候选隔离排序（Candidate Isolation）</h3>
+      <p>Transformer 推断时，候选帖子之间无法相互注意——每个候选只能独立关注用户上下文。这保证了一条帖子的分数不受同批次其他帖子影响，分数结果稳定且可被缓存复用。</p>
+    </div>
+
+    <div class="decision-card" style="border-left-color: var(--accent3);">
+      <h3><span class="num" style="background:var(--accent3);">3</span>基于哈希的 Embedding 查找</h3>
+      <p>召回和排序模型均使用多个哈希函数进行 Embedding 查找，而非维护显式 ID→向量映射表。这避免了巨大的词表存储开销，并天然支持未见过的新用户/新帖子（无需 OOV 处理）。</p>
+    </div>
+
+    <div class="decision-card" style="border-left-color: var(--accent4);">
+      <h3><span class="num" style="background:var(--accent4);">4</span>多行为同时预测</h3>
+      <p>模型不只预测单一"相关度"分数，而是同时输出 15 种互动行为的概率。这使得最终打分公式可以灵活调整各行为权重（如提升转发权重、降低仅点击权重），无需重新训练模型。</p>
+    </div>
+
+    <div class="decision-card" style="border-left-color: #6366f1;">
+      <h3><span class="num" style="background:#6366f1;">5</span>可组合流水线架构</h3>
+      <p><code style="font-size:.82rem;color:var(--accent);">candidate-pipeline</code> 框架将流水线执行监控与业务逻辑完全解耦。各阶段可独立测试、替换、并行运行，新增数据源、过滤器、评分器只需实现对应 Trait，不影响其他阶段。</p>
+    </div>
+
+  </div>
+</section>
+
+<!-- ═══════════════════════════ QUICK START ═══════════════════════════ -->
+<section id="quickstart">
+  <div class="container">
+    <h2><span class="tag">Quick Start</span>快速上手</h2>
+    <p class="section-desc">几分钟内运行 Phoenix ML 模型，亲手体验推荐算法。</p>
+
+    <div class="grid2" style="margin-bottom:24px;">
+      <div>
+        <h3 style="font-size:.95rem;margin-bottom:12px;">环境要求</h3>
+        <div class="grid2" style="gap:10px;">
+          <div class="card" style="padding:14px;">
+            <div style="font-size:1.2rem;margin-bottom:4px;">🐍</div>
+            <h3 style="font-size:.85rem;">Python 3.11+</h3>
+            <p>运行 Phoenix ML 模型所需</p>
+          </div>
+          <div class="card" style="padding:14px;">
+            <div style="font-size:1.2rem;margin-bottom:4px;">⚡</div>
+            <h3 style="font-size:.85rem;">Rust 1.70+</h3>
+            <p>运行 Thunder / Home Mixer</p>
+          </div>
+          <div class="card" style="padding:14px;">
+            <div style="font-size:1.2rem;margin-bottom:4px;">📦</div>
+            <h3 style="font-size:.85rem;">uv</h3>
+            <p>Python 包管理器（推荐）</p>
+          </div>
+          <div class="card" style="padding:14px;">
+            <div style="font-size:1.2rem;margin-bottom:4px;">📨</div>
+            <h3 style="font-size:.85rem;">Kafka（可选）</h3>
+            <p>Thunder 实时事件摄取</p>
+          </div>
+        </div>
+      </div>
+      <div>
+        <h3 style="font-size:.95rem;margin-bottom:12px;">项目目录结构</h3>
+        <div class="code-block">
+<span class="comment"># x-algorithm/</span>
+├── home-mixer/       <span class="comment"># 编排层 (Rust)</span>
+│   ├── sources/      <span class="comment"># Thunder & Phoenix 数据源</span>
+│   ├── filters/      <span class="comment"># 12 个过滤器</span>
+│   ├── scorers/      <span class="comment"># 4 个评分器</span>
+│   └── main.rs       <span class="comment"># gRPC 服务入口</span>
+├── thunder/          <span class="comment"># 内存帖子引擎 (Rust)</span>
+│   ├── kafka/        <span class="comment"># Kafka 消费者</span>
+│   └── posts/        <span class="comment"># 内存存储</span>
+├── phoenix/          <span class="comment"># ML 模型 (Python/JAX)</span>
+│   ├── recsys_model.py       <span class="comment"># Transformer 排序</span>
+│   └── recsys_retrieval_model.py  <span class="comment"># Two-Tower 召回</span>
+└── candidate-pipeline/  <span class="comment"># 可复用框架 (Rust)</span>
+        </div>
+      </div>
+    </div>
+
+    <h3 style="font-size:.95rem;margin-bottom:12px;">运行 Phoenix 排序模型</h3>
+    <div class="code-block">
+<span class="comment"># 1. 进入 phoenix 目录</span>
+<span class="cmd">cd phoenix</span>
+
+<span class="comment"># 2. 安装依赖（使用 uv）</span>
+<span class="cmd">uv sync</span>
+
+<span class="comment"># 3. 运行 Transformer 排序器（随机模拟数据）</span>
+<span class="cmd">uv run run_ranker.py</span>
+
+<span class="comment"># 4. 运行 Two-Tower 召回模型</span>
+<span class="cmd">uv run run_retrieval.py</span>
+
+<span class="comment"># 5. 运行单元测试</span>
+<span class="cmd">uv run pytest test_recsys_model.py test_recsys_retrieval_model.py</span>
+    </div>
+
+    <h3 style="font-size:.95rem;margin-bottom:12px;margin-top:20px;">运行 Rust 服务</h3>
+    <div class="code-block">
+<span class="comment"># 构建并运行 Home Mixer（编排层）</span>
+<span class="cmd">cargo run -p home-mixer</span>
+
+<span class="comment"># 构建并运行 Thunder（站内内容引擎）</span>
+<span class="cmd">cargo run -p thunder</span>
+
+<span class="comment"># 运行所有 Rust 测试</span>
+<span class="cmd">cargo test</span>
+    </div>
+
+  </div>
+</section>
+
+<!-- ═══════════════════════════ FOOTER ═══════════════════════════ -->
+<footer>
+  <div style="font-size:1.5rem;margin-bottom:12px;">𝕏</div>
+  <p>X For You Feed 推荐算法 · 开源于 Apache License 2.0</p>
+  <p style="margin-top:6px;">基于 <a href="https://github.com/xai-org/grok-1">xAI Grok-1</a> Transformer 架构构建</p>
+</footer>
+
+<script>
+  // Smooth scroll
+  document.querySelectorAll('a[href^="#"]').forEach(a => {
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      document.querySelector(a.getAttribute('href'))?.scrollIntoView({ behavior: 'smooth' });
+    });
+  });
+
+  // Highlight active nav item on scroll
+  const sections = document.querySelectorAll('section[id]');
+  const navLinks = document.querySelectorAll('nav a');
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        navLinks.forEach(a => {
+          a.style.color = a.getAttribute('href') === '#' + entry.target.id
+            ? 'var(--accent)' : '';
+        });
+      }
+    });
+  }, { rootMargin: '-40% 0px -50% 0px' });
+  sections.forEach(s => observer.observe(s));
+</script>
+
+</body>
+</html>
